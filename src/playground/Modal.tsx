@@ -10,6 +10,13 @@ interface ModalProps {
 
 export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, triggerRef }) => {
   const modalRef = useRef<HTMLDivElement>(null);
+  // This effect runs on the very first render too, even when isOpen starts
+  // false — there's nothing in `isOpen` alone that distinguishes "just
+  // closed" from "never opened yet." Without this guard, mounting the
+  // component with isOpen=false steals focus onto the trigger immediately,
+  // which is the bug: focus should only return to the trigger when the
+  // modal actually closes, not on mount.
+  const hasOpenedRef = useRef(false);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -40,12 +47,13 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, 
     };
 
     if (isOpen) {
+      hasOpenedRef.current = true;
       document.addEventListener('keydown', handleKeyDown);
       const focusableElements = modalRef.current?.querySelectorAll<HTMLElement>(
         'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
       );
       focusableElements?.[0]?.focus();
-    } else {
+    } else if (hasOpenedRef.current) {
       triggerRef.current?.focus();
     }
 

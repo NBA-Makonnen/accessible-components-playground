@@ -1,0 +1,116 @@
+diff --git a/src/playground/Modal.test.tsx b/src/playground/Modal.test.tsx
+new file mode 100644
+index 0000000..5079643
+--- /dev/null
++++ b/src/playground/Modal.test.tsx
+@@ -0,0 +1,53 @@
++import { describe, it, expect } from "vitest";
++import { render, screen } from "@testing-library/react";
++import { useRef as useReactRef, useState } from "react";
++import userEvent from "@testing-library/user-event";
++import { Modal } from "./Modal";
++
++function Harness({ initialOpen }: { initialOpen: boolean }) {
++  const triggerRef = useReactRef<HTMLButtonElement>(null);
++  return (
++    <>
++      <button ref={triggerRef}>Open modal</button>
++      <Modal isOpen={initialOpen} onClose={() => {}} title="Test" triggerRef={triggerRef}>
++        <p>Content</p>
++      </Modal>
++    </>
++  );
++}
++
++describe("Modal focus management", () => {
++  it("does not steal focus onto the trigger on initial mount", () => {
++    render(<Harness initialOpen={false} />);
++    // Nothing has been focused by the modal; the trigger should not have
++    // been force-focused just because the component mounted.
++    expect(screen.getByRole("button", { name: "Open modal" })).not.toHaveFocus();
++  });
++
++  it("returns focus to the trigger when actually closed after being open", async () => {
++    function ControlledHarness() {
++      const triggerRef = useReactRef<HTMLButtonElement>(null);
++      const [open, setOpen] = useState(false);
++      return (
++        <>
++          <button ref={triggerRef} onClick={() => setOpen(true)}>
++            Open modal
++          </button>
++          <Modal isOpen={open} onClose={() => setOpen(false)} title="Test" triggerRef={triggerRef}>
++            <button onClick={() => setOpen(false)}>Close</button>
++          </Modal>
++        </>
++      );
++    }
++
++    const user = userEvent.setup();
++    render(<ControlledHarness />);
++
++    await user.click(screen.getByRole("button", { name: "Open modal" }));
++    expect(screen.getByRole("dialog")).toBeInTheDocument();
++
++    await user.click(screen.getByRole("button", { name: "Close" }));
++    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
++    expect(screen.getByRole("button", { name: "Open modal" })).toHaveFocus();
++  });
++});
+diff --git a/src/playground/Modal.tsx b/src/playground/Modal.tsx
+index 83a5ca7..630e1ce 100644
+--- a/src/playground/Modal.tsx
++++ b/src/playground/Modal.tsx
+@@ -10,6 +10,13 @@ interface ModalProps {
+ 
+ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, triggerRef }) => {
+   const modalRef = useRef<HTMLDivElement>(null);
++  // This effect runs on the very first render too, even when isOpen starts
++  // false — there's nothing in `isOpen` alone that distinguishes "just
++  // closed" from "never opened yet." Without this guard, mounting the
++  // component with isOpen=false steals focus onto the trigger immediately,
++  // which is the bug: focus should only return to the trigger when the
++  // modal actually closes, not on mount.
++  const hasOpenedRef = useRef(false);
+ 
+   useEffect(() => {
+     const handleKeyDown = (e: KeyboardEvent) => {
+@@ -40,12 +47,13 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children,
+     };
+ 
+     if (isOpen) {
++      hasOpenedRef.current = true;
+       document.addEventListener('keydown', handleKeyDown);
+       const focusableElements = modalRef.current?.querySelectorAll<HTMLElement>(
+         'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+       );
+       focusableElements?.[0]?.focus();
+-    } else {
++    } else if (hasOpenedRef.current) {
+       triggerRef.current?.focus();
+     }
+ 
+diff --git a/vitest.config.mts b/vitest.config.mts
+new file mode 100644
+index 0000000..5d4f6f9
+--- /dev/null
++++ b/vitest.config.mts
+@@ -0,0 +1,11 @@
++import { defineConfig } from "vitest/config";
++import react from "@vitejs/plugin-react";
++
++export default defineConfig({
++  plugins: [react()],
++  test: {
++    environment: "jsdom",
++    globals: true,
++    setupFiles: ["./vitest.setup.ts"],
++  },
++});
+diff --git a/vitest.setup.ts b/vitest.setup.ts
+new file mode 100644
+index 0000000..f149f27
+--- /dev/null
++++ b/vitest.setup.ts
+@@ -0,0 +1 @@
++import "@testing-library/jest-dom/vitest";
